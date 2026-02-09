@@ -1,4 +1,4 @@
-# YouTube One-Click Block
+# YouTube Onye-Cwick B-Bwock
 
 A button.
 
@@ -6,19 +6,21 @@ A button.
 
 ## What it does
 
-Adds a block button to video thumbnails on YouTube. Also comment section.
-## Installation
+Adds a bwock button ;;w;; to v-v-video thumbnyaiws on Y-YouTube. Also comment section.
+## Instawwation
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/)
-2. Add this script
-3. Reload YouTube
-4. Hover over a video. See the button. Use it or don't.
+1. Instaww [Tampewmonkey](https://www.tampewmonkey.nyet/)
+2. Add this scwipt
+3. Wewoad YouTube
+4. Huvw uvw a video. See the *boops your nose* button. Use it ow *whispers to self* don't.
 
 ## Notes
 
-Sometimes YouTube changes things and scripts break. 
-Export/Import.
+Sometimes YouTube changes things and scwipts bweak. 
+Expowt/Impowt.
 
-## License
+## Wicense
 
 Unlicense.
+
+Uwufiered by [Uwuifier Translator](https://uwuifier.com)
