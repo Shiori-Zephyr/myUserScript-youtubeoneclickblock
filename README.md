@@ -23,4 +23,4 @@ Expowt/Impowt.
 
 Unlicense.
 
-Uwufiered by [Uwuifier Translator](https://uwuifier.com)
+Uwuified by [Uwuifier Translator](https://uwuifier.com)
