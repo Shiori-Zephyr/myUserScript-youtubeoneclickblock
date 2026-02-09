@@ -1,6 +1,6 @@
 # YouTube One-Click Block
 
-A button appears. You click it. The channel is gone.
+A button.
 
 
 
