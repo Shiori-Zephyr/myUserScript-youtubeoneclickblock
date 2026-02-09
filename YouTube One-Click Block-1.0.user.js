@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube One-Click Block
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Adds block buttons to YouTube comments, homepage videos, sidebar recommendations, search results, and channel pages
 // @author       Shiori
 // @match        https://www.youtube.com/*
@@ -20,7 +20,6 @@
     const HIDDEN_ATTR = 'data-quick-block-hidden';
     const STORAGE_KEY = 'ytBlockedChannels';
 
-    // Load blocked channels into a Set for O(1) lookup
     let blockedChannels = [];
     let blockedSet = new Set();
     try {
@@ -31,7 +30,6 @@
         blockedSet = new Set();
     }
 
-    // Listen for changes from other tabs
     GM_addValueChangeListener(STORAGE_KEY, (name, oldValue, newValue, remote) => {
         if (remote) {
             try {
@@ -47,7 +45,6 @@
         }
     });
 
-    // CSS
     const style = document.createElement('style');
     style.textContent = `
         .${BLOCK_BUTTON_CLASS} {
@@ -237,10 +234,84 @@
         return match ? decodeURIComponent(match[1]) : null;
     }
 
-    // O(1) lookup using Set
     function isBlocked(identifier) {
         if (!identifier) return false;
         return blockedSet.has(identifier.toLowerCase().trim());
+    }
+
+    function extractChannelInfo(item) {
+        let handle = null;
+        let displayName = null;
+        let container = item;
+
+        if (item.matches('ytd-comment-view-model, ytd-comment-renderer')) {
+            const authorLink = item.querySelector('#author-text');
+            if (authorLink) {
+                handle = getHandleFromHref(authorLink.href);
+                displayName = authorLink.textContent?.trim();
+                container = item.closest('ytd-comment-thread-renderer') || item;
+            }
+        } else if (item.matches('yt-lockup-view-model')) {
+            const avatarLabel = item.querySelector('[aria-label*="前往頻道"], [aria-label*="Go to channel"], [aria-label*="チャンネル"]');
+            if (avatarLabel) {
+                const label = avatarLabel.getAttribute('aria-label');
+                const match = label.match(/[:：]\s*(.+)$/);
+                displayName = match ? match[1].trim() : null;
+            }
+            if (!displayName) {
+                const metadataText = item.querySelector('yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-text');
+                displayName = metadataText?.textContent?.trim();
+            }
+            const channelLink = item.querySelector('a[href^="/@"]');
+            handle = channelLink ? getHandleFromHref(channelLink.href) : null;
+            container = item.closest('ytd-rich-item-renderer') || item;
+        } else if (item.matches('ytd-rich-item-renderer')) {
+            if (item.querySelector('yt-lockup-view-model')) return { handle: null, displayName: null, container: item };
+            const channelLink = item.querySelector('a[href^="/@"]');
+            if (channelLink) {
+                handle = getHandleFromHref(channelLink.href);
+                displayName = channelLink.textContent?.trim();
+            }
+        } else if (item.matches('ytd-compact-video-renderer')) {
+            const channelLink = item.querySelector('a[href^="/@"]');
+            if (channelLink) {
+                handle = getHandleFromHref(channelLink.href);
+                displayName = channelLink.textContent?.trim();
+            }
+        } else if (item.matches('ytd-video-renderer')) {
+            const channelNameEl = item.querySelector('ytd-channel-name a');
+            if (channelNameEl) {
+                handle = getHandleFromHref(channelNameEl.href);
+                displayName = channelNameEl.textContent?.trim();
+            }
+        }
+
+        return { handle, displayName, container };
+    }
+
+    function hideByIdentifier(targetHandle, targetDisplayName) {
+        const targetHandleNorm = targetHandle?.toLowerCase().trim();
+        const targetDisplayNorm = targetDisplayName?.toLowerCase().trim();
+
+        const selectors = [
+            'ytd-comment-view-model', 'ytd-comment-renderer',
+            'yt-lockup-view-model', 'ytd-rich-item-renderer',
+            'ytd-compact-video-renderer', 'ytd-video-renderer'
+        ];
+
+        document.querySelectorAll(selectors.join(',')).forEach(item => {
+            const { handle, displayName, container } = extractChannelInfo(item);
+            const handleNorm = handle?.toLowerCase().trim();
+            const displayNorm = displayName?.toLowerCase().trim();
+
+            if ((targetHandleNorm && handleNorm === targetHandleNorm) ||
+                (targetDisplayNorm && displayNorm === targetDisplayNorm) ||
+                (targetHandleNorm && displayNorm === targetHandleNorm) ||
+                (targetDisplayNorm && handleNorm === targetDisplayNorm)) {
+                container.classList.add('yt-blocked-item');
+                container.setAttribute(HIDDEN_ATTR, 'true');
+            }
+        });
     }
 
     function blockChannel(identifier, displayName, button) {
@@ -255,7 +326,7 @@
             button.textContent = '✓';
             button.classList.add('done');
         }
-        hideAllBlocked();
+        hideByIdentifier(identifier, displayName);
         updatePanel();
         console.log(`Blocked: ${displayName || identifier}`);
     }
@@ -265,17 +336,15 @@
         blockedChannels = blockedChannels.filter(c => c.toLowerCase().trim() !== normalized);
         blockedSet.delete(normalized);
         saveBlockedChannels();
-        // Remove hidden class from all items
         document.querySelectorAll('.yt-blocked-item').forEach(el => {
             el.classList.remove('yt-blocked-item');
             el.removeAttribute(HIDDEN_ATTR);
         });
-        // Update channel page button if on that channel
         updateChannelPageButton();
+        updateAllBlockButtons();
         updatePanel();
     }
 
-    // Update all block buttons to reflect current state
     function updateAllBlockButtons() {
         document.querySelectorAll(`.${BLOCK_BUTTON_CLASS}`).forEach(btn => {
             const identifier = btn.dataset.identifier;
@@ -290,7 +359,6 @@
         });
     }
 
-    // Check and hide a single element - returns true if hidden
     function checkAndHide(element, handle, displayName) {
         if (element.hasAttribute(HIDDEN_ATTR)) return element.classList.contains('yt-blocked-item');
         element.setAttribute(HIDDEN_ATTR, 'true');
@@ -302,69 +370,19 @@
         return false;
     }
 
-    // Process only new elements that haven't been checked
     function hideNewContent(elements) {
         if (blockedChannels.length === 0) return;
 
         elements.forEach(item => {
             if (item.hasAttribute(HIDDEN_ATTR)) return;
-
-            let handle = null;
-            let displayName = null;
-            let container = item;
-
-            // Determine type and extract info
-            if (item.matches('ytd-comment-view-model, ytd-comment-renderer')) {
-                const authorLink = item.querySelector('#author-text');
-                if (authorLink) {
-                    handle = getHandleFromHref(authorLink.href);
-                    displayName = authorLink.textContent?.trim();
-                    container = item.closest('ytd-comment-thread-renderer') || item;
-                }
-            } else if (item.matches('yt-lockup-view-model')) {
-                const avatarLabel = item.querySelector('[aria-label*="前往頻道"], [aria-label*="Go to channel"], [aria-label*="チャンネル"]');
-                if (avatarLabel) {
-                    const label = avatarLabel.getAttribute('aria-label');
-                    const match = label.match(/[:：]\s*(.+)$/);
-                    displayName = match ? match[1].trim() : null;
-                }
-                if (!displayName) {
-                    const metadataText = item.querySelector('yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-text');
-                    displayName = metadataText?.textContent?.trim();
-                }
-                const channelLink = item.querySelector('a[href^="/@"]');
-                handle = channelLink ? getHandleFromHref(channelLink.href) : null;
-                container = item.closest('ytd-rich-item-renderer') || item;
-            } else if (item.matches('ytd-rich-item-renderer')) {
-                if (item.querySelector('yt-lockup-view-model')) return;
-                const channelLink = item.querySelector('a[href^="/@"]');
-                if (channelLink) {
-                    handle = getHandleFromHref(channelLink.href);
-                    displayName = channelLink.textContent?.trim();
-                }
-            } else if (item.matches('ytd-compact-video-renderer')) {
-                const channelLink = item.querySelector('a[href^="/@"]');
-                if (channelLink) {
-                    handle = getHandleFromHref(channelLink.href);
-                    displayName = channelLink.textContent?.trim();
-                }
-            } else if (item.matches('ytd-video-renderer')) {
-                const channelNameEl = item.querySelector('ytd-channel-name a');
-                if (channelNameEl) {
-                    handle = getHandleFromHref(channelNameEl.href);
-                    displayName = channelNameEl.textContent?.trim();
-                }
-            }
-
+            const { handle, displayName, container } = extractChannelInfo(item);
             checkAndHide(container, handle, displayName);
         });
     }
 
-    // Full scan - only for initial load or after unblock
     function hideAllBlocked() {
         if (blockedChannels.length === 0) return;
 
-        // Reset hidden attributes to re-check everything
         document.querySelectorAll(`[${HIDDEN_ATTR}]`).forEach(el => {
             el.removeAttribute(HIDDEN_ATTR);
             el.classList.remove('yt-blocked-item');
@@ -413,7 +431,6 @@
             if (headerAuthor) {
                 headerAuthor.appendChild(button);
             }
-            // Check hide for this specific comment
             const container = comment.closest('ytd-comment-thread-renderer') || comment;
             checkAndHide(container, handle, displayName);
         });
@@ -447,7 +464,6 @@
                     metadata.appendChild(button);
                 }
             }
-            // Check hide
             const container = item.closest('ytd-rich-item-renderer') || item;
             checkAndHide(container, handle, channelName);
         });
@@ -488,43 +504,31 @@
         });
     }
 
-    // New: Process channel page
     function processChannelPage() {
-        // Check if we're on a channel page
         if (!location.pathname.startsWith('/@')) return;
-
-        // Check if button already exists
         if (document.querySelector('#yt-channel-block-btn')) return;
 
-        // Get channel info from URL
         const handle = getHandleFromUrl();
         if (!handle) return;
 
-        // Try multiple possible header structures
         const header = document.querySelector('ytd-c4-tabbed-header-renderer');
-
-        // Get display name
         let displayName = null;
         if (header) {
             const channelNameEl = header.querySelector('#channel-name yt-formatted-string, #channel-name, yt-dynamic-text-view-model');
             displayName = channelNameEl?.textContent?.trim();
         }
 
-        // New layout: yt-flexible-actions-view-model
         const flexActions = document.querySelector('yt-flexible-actions-view-model');
         if (flexActions) {
             const wrapper = document.createElement('div');
             wrapper.className = 'ytFlexibleActionsViewModelAction';
-
             const button = createBlockButton(handle, displayName || handle, 'channel-page-btn');
             button.id = 'yt-channel-block-btn';
-
             wrapper.appendChild(button);
             flexActions.appendChild(wrapper);
             return;
         }
 
-        // Old layout fallback
         const buttonContainers = [
             '#buttons',
             '#subscribe-button',
@@ -679,7 +683,6 @@
         processChannelPage();
     }
 
-    // Targeted observer - only watch specific containers
     function setupObservers() {
         const config = { childList: true, subtree: true };
         let debounceTimer = null;
@@ -689,9 +692,7 @@
             debounceTimer = setTimeout(processAll, 200);
         };
 
-        // Main observer for dynamic content
         const mainObserver = new MutationObserver((mutations) => {
-            // Quick check: only process if relevant elements were added
             let hasRelevant = false;
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length > 0) {
@@ -720,7 +721,6 @@
             }
         });
 
-        // Watch the main content area
         const watchTargets = [
             '#content',
             '#primary',
@@ -730,7 +730,6 @@
             'ytd-browse'
         ];
 
-        // Start observing once targets exist
         const tryObserve = () => {
             let observed = false;
             for (const selector of watchTargets) {
@@ -741,21 +740,17 @@
                 }
             }
 
-            // Fallback to body if no specific targets found
             if (!observed) {
                 mainObserver.observe(document.body, config);
             }
         };
 
-        // Initial attempt
         tryObserve();
 
-        // Re-check on navigation (YouTube SPA)
         let lastUrl = location.href;
         const urlObserver = new MutationObserver(() => {
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
-                // Remove old channel button on navigation
                 const oldBtn = document.querySelector('#yt-channel-block-btn');
                 if (oldBtn) oldBtn.remove();
                 setTimeout(() => {
@@ -767,12 +762,11 @@
         urlObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-    // Initialize
     setTimeout(() => {
         createPanel();
         processAll();
         setupObservers();
     }, 1000);
 
-    console.log('YouTube One-Click Block v1.1 loaded');
+    console.log('YouTube One-Click Block v1.2 loaded');
 })();
