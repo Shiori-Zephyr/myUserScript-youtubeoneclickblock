@@ -6,7 +6,7 @@ A button.
 
 ## What it does
 
-Adds a block button to video thumbnails on YouTube. 
+Adds a block button to video thumbnails on YouTube. Also comment section.
 ## Installation
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/)
