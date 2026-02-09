@@ -336,10 +336,25 @@
         blockedChannels = blockedChannels.filter(c => c.toLowerCase().trim() !== normalized);
         blockedSet.delete(normalized);
         saveBlockedChannels();
+
         document.querySelectorAll('.yt-blocked-item').forEach(el => {
-            el.classList.remove('yt-blocked-item');
             el.removeAttribute(HIDDEN_ATTR);
+            el.classList.remove('yt-blocked-item');
         });
+
+        const selectors = [
+            'ytd-comment-view-model', 'ytd-comment-renderer',
+            'yt-lockup-view-model', 'ytd-rich-item-renderer',
+            'ytd-compact-video-renderer', 'ytd-video-renderer'
+        ];
+        document.querySelectorAll(selectors.join(',')).forEach(item => {
+            const { handle, displayName, container } = extractChannelInfo(item);
+            if ((handle && isBlocked(handle)) || (displayName && isBlocked(displayName))) {
+                container.classList.add('yt-blocked-item');
+                container.setAttribute(HIDDEN_ATTR, 'true');
+            }
+        });
+
         updateChannelPageButton();
         updateAllBlockButtons();
         updatePanel();
