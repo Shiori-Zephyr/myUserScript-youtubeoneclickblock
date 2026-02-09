@@ -1,6 +1,6 @@
 # YouTube Onye-Cwick B-Bwock
 
-A button.
+A button.✿
 
 
 
@@ -21,6 +21,6 @@ Expowt/Impowt.
 
 ## Wicense
 
-Unlicense.
+Unlicense.♡
 
 Uwuified by [Uwuifier Translator](https://uwuifier.com)
