@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         YouTube One-Click Block
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Adds block buttons to YouTube comments, homepage videos, sidebar recommendations, search results, and channel pages
 // @author       Shiori
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addValueChangeListener
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -29,6 +30,22 @@
         blockedChannels = [];
         blockedSet = new Set();
     }
+
+    // Listen for changes from other tabs
+    GM_addValueChangeListener(STORAGE_KEY, (name, oldValue, newValue, remote) => {
+        if (remote) {
+            try {
+                blockedChannels = JSON.parse(newValue);
+                rebuildBlockedSet();
+                hideAllBlocked();
+                updateAllBlockButtons();
+                updatePanel();
+                console.log('YouTube Block: Synced from another tab, now blocking', blockedChannels.length, 'channels');
+            } catch (e) {
+                console.error('YouTube Block: Failed to sync from other tab', e);
+            }
+        }
+    });
 
     // CSS
     const style = document.createElement('style');
@@ -258,6 +275,21 @@
         updatePanel();
     }
 
+    // Update all block buttons to reflect current state
+    function updateAllBlockButtons() {
+        document.querySelectorAll(`.${BLOCK_BUTTON_CLASS}`).forEach(btn => {
+            const identifier = btn.dataset.identifier;
+            const displayName = btn.dataset.displayName;
+            if (isBlocked(identifier) || isBlocked(displayName)) {
+                btn.textContent = '✓';
+                btn.classList.add('done');
+            } else {
+                btn.textContent = 'Block';
+                btn.classList.remove('done');
+            }
+        });
+    }
+
     // Check and hide a single element - returns true if hidden
     function checkAndHide(element, handle, displayName) {
         if (element.hasAttribute(HIDDEN_ATTR)) return element.classList.contains('yt-blocked-item');
@@ -332,6 +364,12 @@
     function hideAllBlocked() {
         if (blockedChannels.length === 0) return;
 
+        // Reset hidden attributes to re-check everything
+        document.querySelectorAll(`[${HIDDEN_ATTR}]`).forEach(el => {
+            el.removeAttribute(HIDDEN_ATTR);
+            el.classList.remove('yt-blocked-item');
+        });
+
         const selectors = [
             'ytd-comment-view-model', 'ytd-comment-renderer',
             'yt-lockup-view-model', 'ytd-rich-item-renderer',
@@ -347,6 +385,8 @@
         if (extraClass) button.classList.add(extraClass);
         button.textContent = 'Block';
         button.title = `Block ${displayName || identifier}`;
+        button.dataset.identifier = identifier || '';
+        button.dataset.displayName = displayName || '';
         if (isBlocked(identifier) || isBlocked(displayName)) {
             button.textContent = '✓';
             button.classList.add('done');
@@ -734,5 +774,5 @@
         setupObservers();
     }, 1000);
 
-    console.log('YouTube One-Click Block v1.0 loaded');
+    console.log('YouTube One-Click Block v1.1 loaded');
 })();
