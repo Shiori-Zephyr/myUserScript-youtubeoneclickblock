@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube One-Click Block
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Adds block buttons to YouTube comments, homepage videos, sidebar recommendations, search results, and channel pages
 // @author       Shiori
 // @match        https://www.youtube.com/*
@@ -289,6 +289,16 @@
         return { handle, displayName, container };
     }
 
+    // Find the hideable container for a given element (button, comment, video, etc.)
+    function findContainer(element) {
+        return element.closest('ytd-comment-thread-renderer') ||
+               element.closest('ytd-rich-item-renderer') ||
+               element.closest('ytd-compact-video-renderer') ||
+               element.closest('ytd-video-renderer') ||
+               element.closest('ytd-comment-view-model') ||
+               element.closest('ytd-comment-renderer');
+    }
+
     function hideByIdentifier(targetHandle, targetDisplayName) {
         const targetHandleNorm = targetHandle?.toLowerCase().trim();
         const targetDisplayNorm = targetDisplayName?.toLowerCase().trim();
@@ -325,33 +335,57 @@
         if (button) {
             button.textContent = '✓';
             button.classList.add('done');
+            // FIX 1: Immediately hide the container of the button that was clicked
+            const immediateContainer = findContainer(button);
+            if (immediateContainer) {
+                immediateContainer.classList.add('yt-blocked-item');
+                immediateContainer.setAttribute(HIDDEN_ATTR, 'true');
+            }
         }
+        // Also hide any other visible items from the same channel
         hideByIdentifier(identifier, displayName);
         updatePanel();
         console.log(`Blocked: ${displayName || identifier}`);
     }
 
+    // FIX 2: Only unhide elements belonging to the unblocked channel, leave others hidden
     function unblockChannel(identifier) {
         const normalized = identifier.toLowerCase().trim();
         blockedChannels = blockedChannels.filter(c => c.toLowerCase().trim() !== normalized);
         blockedSet.delete(normalized);
         saveBlockedChannels();
 
-        document.querySelectorAll('.yt-blocked-item').forEach(el => {
-            el.removeAttribute(HIDDEN_ATTR);
-            el.classList.remove('yt-blocked-item');
-        });
-
         const selectors = [
             'ytd-comment-view-model', 'ytd-comment-renderer',
             'yt-lockup-view-model', 'ytd-rich-item-renderer',
             'ytd-compact-video-renderer', 'ytd-video-renderer'
         ];
+
+        // Only unhide elements that match the unblocked identifier
+        // and are NOT still blocked by another identifier
         document.querySelectorAll(selectors.join(',')).forEach(item => {
             const { handle, displayName, container } = extractChannelInfo(item);
-            if ((handle && isBlocked(handle)) || (displayName && isBlocked(displayName))) {
-                container.classList.add('yt-blocked-item');
-                container.setAttribute(HIDDEN_ATTR, 'true');
+            if (!container.classList.contains('yt-blocked-item')) return;
+
+            const handleNorm = handle?.toLowerCase().trim();
+            const displayNorm = displayName?.toLowerCase().trim();
+
+            // Check if this element belongs to the channel being unblocked
+            const matchesUnblocked =
+                (handleNorm && handleNorm === normalized) ||
+                (displayNorm && displayNorm === normalized);
+
+            if (matchesUnblocked) {
+                // Double-check: is this channel still blocked via another identifier?
+                // (e.g. blocked by both handle and display name separately)
+                const stillBlocked =
+                    (handle && isBlocked(handle)) ||
+                    (displayName && isBlocked(displayName));
+
+                if (!stillBlocked) {
+                    container.classList.remove('yt-blocked-item');
+                    container.removeAttribute(HIDDEN_ATTR);
+                }
             }
         });
 
@@ -783,5 +817,5 @@
         setupObservers();
     }, 1000);
 
-    console.log('YouTube One-Click Block v1.2 loaded');
+    console.log('YouTube One-Click Block v1.3 loaded');
 })();
